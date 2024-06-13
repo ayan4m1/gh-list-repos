@@ -2,6 +2,7 @@ import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 import type { PackageJson } from '@npmcli/package-json';
 import packageJsonModule from '@npmcli/package-json';
+import parseLinkHeader from 'parse-link-header';
 
 export enum Visibility {
   Public,
@@ -54,7 +55,7 @@ const getInstallDirectory = (): string =>
 const getPackageJsonPath = (): string => resolve(getInstallDirectory(), '..');
 
 export const fetchRepos = async (
-  { username: user, organization, token }: ListReposOptions,
+  { username, organization, token }: ListReposOptions,
   repos: object[],
   nextUrl: string
 ) => {
@@ -63,7 +64,7 @@ export const fetchRepos = async (
 
     if (token) {
       const encodedToken = Buffer.from(
-        `${user || organization}/token:${token}`
+        `${username || organization}/token:${token}`
       ).toString('base64');
 
       headers.Authorization = `Basic ${encodedToken}`;
@@ -71,24 +72,28 @@ export const fetchRepos = async (
 
     const url =
       nextUrl ??
-      `https://api.github.com/${user ? 'users' : 'orgs'}/${user || organization}/repos`;
-
-    console.dir(url);
+      `https://api.github.com/${username ? 'users' : 'orgs'}/${username ?? organization}/repos`;
 
     const result = await fetch(url, {
       headers
     });
     const parsed = await result.json();
 
-    console.dir(parsed);
+    repos.push(...parsed);
 
     if (result.headers.has('Link')) {
-      console.log(`Recursing to next page ${result.headers.get('Link')}`);
+      const nextUrl = parseLinkHeader(result.headers.get('Link'))?.next?.url;
+
+      if (!nextUrl) {
+        return repos;
+      }
+
+      console.log(`Recursing to next page ${nextUrl}`);
 
       return fetchRepos(
-        { username: user, organization, token },
+        { username: username, organization, token },
         repos,
-        result.headers.get('Link')
+        nextUrl
       );
     }
   } catch (error) {
@@ -113,7 +118,9 @@ export async function listRepos(opts: ListReposOptions): Promise<void> {
       throw new Error('User and organization cannot both be supplied!');
     }
 
-    await fetchRepos(opts, [], null);
+    const repos = await fetchRepos(opts, [], null);
+
+    console.dir(repos);
   } catch (error) {
     console.error(error);
     process.exit(1);

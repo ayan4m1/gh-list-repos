@@ -6,6 +6,7 @@
     "@rollup/plugin-terser": "^0.4.4",
     "@rollup/plugin-typescript": "^11.1.6",
     "@types/cli-progress": "^3.11.5",
+    "@types/cli-table": "^0.3.4",
     "@types/copy-paste": "^1.1.33",
     "@types/node": "^20.14.2",
     "@types/npmcli__package-json": "^4.0.4",

@@ -16,7 +16,6 @@ try {
     .option('-i, --interactive', 'Perform an interactive login to GitHub')
     .option('-v, --visibility <value>', 'Filter based on repo visibility')
     .option('-n, --name <value>', 'Filter based on repo name')
-    .option('-s, --skip <number>', 'Number of repos to skip')
     .option('-l, --limit <number>', 'Maximum number of repos to return')
     .option(
       '-S, --sort <field>:<direction>',

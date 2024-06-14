@@ -132,7 +132,6 @@ export type GitHubRepoData = {
 export type ListReposOptions = AuthData & {
   visibility?: Visibility;
   name?: string;
-  skip?: number;
   limit?: number;
   sort?: {
     field: SortField;
@@ -155,7 +154,7 @@ export const fetchRepos = async (
     const identifier = options.username ?? options.organization;
     const url =
       nextUrl ??
-      `https://api.github.com/${options.username ? 'users' : 'orgs'}/${identifier}/repos`;
+      `https://api.github.com/${options.username ? 'users' : 'orgs'}/${identifier}/repos?per_page=100`;
 
     const result = await makeApiRequest(url, options);
     const parsed = await result.json();
@@ -166,7 +165,10 @@ export const fetchRepos = async (
 
     repos.push(...parsed);
 
-    if (result.headers.has('Link')) {
+    if (
+      result.headers.has('Link') &&
+      repos.length < (options.limit ?? Infinity)
+    ) {
       const linkHeader = parseLinkHeader(result.headers.get('Link'));
 
       // start progress bar if this is the first recursion
@@ -179,10 +181,9 @@ export const fetchRepos = async (
         }
       }
 
-      progressBar.increment();
-
       // recurse if necessary
       if (linkHeader.next) {
+        progressBar.increment();
         return fetchRepos(options, progressBar, repos, linkHeader.next.url);
       }
     }
@@ -195,8 +196,6 @@ export const fetchRepos = async (
 
 export const getPackageInfo = async (): Promise<PackageJson> =>
   (await packageJsonModule.load(getPackageJsonPath()))?.content;
-
-// export const transformRepoData;
 
 export async function listRepos(opts: ListReposOptions): Promise<void> {
   try {
@@ -241,7 +240,8 @@ export async function listRepos(opts: ListReposOptions): Promise<void> {
 
     const table = new Table({
       head: ['Repository', 'Owner', 'Created', 'Pushed', 'Archived', 'Private'],
-      colWidths: [35, 15, 10, 10, 10, 10]
+      colWidths: [35, 15, 15, 15, 10, 10],
+      colAligns: ['left', 'left', 'right', 'right', 'middle', 'middle']
     });
 
     repos.sort((a: GitHubRepoData, b: GitHubRepoData) =>
@@ -250,7 +250,7 @@ export async function listRepos(opts: ListReposOptions): Promise<void> {
 
     const tableCells = repos.map((repo: GitHubRepoData) => [
       repo.name,
-      repo.owner.login,
+      repo.owner?.login ?? 'Unknown',
       format(parseISO(repo.created_at), 'yyy-MM-dd'),
       format(parseISO(repo.pushed_at), 'yyyy-MM-dd'),
       repo.archived ? '✅' : '❌',

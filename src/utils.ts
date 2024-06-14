@@ -1,5 +1,6 @@
 import type { PackageJson } from '@npmcli/package-json';
 
+import Table from 'cli-table';
 import { fileURLToPath } from 'url';
 import ansiColors from 'ansi-colors';
 import { dirname, resolve } from 'path';
@@ -8,6 +9,7 @@ import parseLinkHeader from 'parse-link-header';
 import packageJsonModule from '@npmcli/package-json';
 
 import { authenticate, makeApiRequest } from './auth.js';
+import { compareAsc, format, parseISO } from 'date-fns';
 
 export enum Visibility {
   Public,
@@ -167,6 +169,7 @@ export const fetchRepos = async (
     if (result.headers.has('Link')) {
       const linkHeader = parseLinkHeader(result.headers.get('Link'));
 
+      // start progress bar if this is the first recursion
       if (repos.length === parsed.length && linkHeader.last) {
         const lastPageUrl = new URL(linkHeader.last?.url);
         const lastPage = parseInt(lastPageUrl.searchParams.get('page'), 10);
@@ -178,6 +181,7 @@ export const fetchRepos = async (
 
       progressBar.increment();
 
+      // recurse if necessary
       if (linkHeader.next) {
         return fetchRepos(options, progressBar, repos, linkHeader.next.url);
       }
@@ -190,7 +194,9 @@ export const fetchRepos = async (
 };
 
 export const getPackageInfo = async (): Promise<PackageJson> =>
-  (await packageJsonModule.load(getPackageJsonPath())).content;
+  (await packageJsonModule.load(getPackageJsonPath()))?.content;
+
+// export const transformRepoData;
 
 export async function listRepos(opts: ListReposOptions): Promise<void> {
   try {
@@ -216,21 +222,44 @@ export async function listRepos(opts: ListReposOptions): Promise<void> {
     }
 
     if (!token && visibility !== Visibility.Public) {
-      throw new Error('A token is required to obtain private repos!');
+      throw new Error('A token is required to access private repos!');
     }
 
     const progressBar = new SingleBar({
-      format: `[{percentage}%] ${ansiColors.magenta('{bar}')} ({value} / {total} pages)`
+      format: `[{percentage}%] ${ansiColors.greenBright('{bar}')} ({value} / {total} pages)`
     });
-    const repos = await fetchRepos(opts, progressBar);
+    const repos = await fetchRepos(
+      {
+        ...opts,
+        username,
+        organization,
+        token
+      },
+      progressBar
+    );
     progressBar.stop();
 
-    console.dir(
-      repos.map((repo: GitHubRepoData) => ({
-        name: repo.name,
-        url: repo.html_url
-      }))
+    const table = new Table({
+      head: ['Repository', 'Owner', 'Created', 'Pushed', 'Archived', 'Private'],
+      colWidths: [35, 15, 10, 10, 10, 10]
+    });
+
+    repos.sort((a: GitHubRepoData, b: GitHubRepoData) =>
+      compareAsc(parseISO(a.pushed_at), parseISO(b.pushed_at))
     );
+
+    const tableCells = repos.map((repo: GitHubRepoData) => [
+      repo.name,
+      repo.owner.login,
+      format(parseISO(repo.created_at), 'yyy-MM-dd'),
+      format(parseISO(repo.pushed_at), 'yyyy-MM-dd'),
+      repo.archived ? '✅' : '❌',
+      repo.private ? '✅' : '❌'
+    ]);
+
+    table.push(...tableCells);
+
+    console.log(table.toString());
   } catch (error) {
     console.error(error);
     process.exit(1);

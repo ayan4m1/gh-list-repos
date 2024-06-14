@@ -143,7 +143,7 @@ const getPackageJsonPath = (): string => resolve(getInstallDirectory(), '..');
 
 export const fetchRepos = async (
   options: ListReposOptions,
-  repos: object[],
+  repos: GitHubRepoData[],
   nextUrl: string
 ) => {
   try {
@@ -209,7 +209,12 @@ export async function listRepos(opts: ListReposOptions): Promise<void> {
 
     const repos = await fetchRepos(opts, [], null);
 
-    console.dir(repos);
+    console.dir(
+      repos.map((repo: GitHubRepoData) => ({
+        name: repo.name,
+        url: repo.html_url
+      }))
+    );
   } catch (error) {
     console.error(error);
     process.exit(1);

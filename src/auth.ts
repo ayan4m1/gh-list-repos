@@ -56,17 +56,17 @@ export const makeApiRequest = (
 
 export const getCurrentUsername = async (authData: AuthData) => {
   const metaResult = await makeApiRequest(
-    'https://api.github.com/api/v3/',
+    'https://api.github.com/user',
     authData
   );
-  const { user_url: rawUserUrl } = await metaResult.json();
-  const userUrl = rawUserUrl as string;
 
-  if (!userUrl) {
+  if (metaResult.status !== 200) {
     return null;
   }
 
-  return userUrl.substring(userUrl.lastIndexOf('/') + 1);
+  const { login } = await metaResult.json();
+
+  return login as string;
 };
 
 export const authenticate = async (): Promise<AuthData> => {
@@ -80,7 +80,8 @@ export const authenticate = async (): Promise<AuthData> => {
     } else {
       console.log(`Authenticated successfully as ${authResult}`);
     }
-  } catch {
+  } catch (error) {
+    console.error(error);
     try {
       console.log('Attempting new login to GitHub to get token...');
       authData = await auth({ type: 'oauth' });

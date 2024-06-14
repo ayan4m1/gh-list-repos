@@ -1,7 +1,9 @@
 import type { PackageJson } from '@npmcli/package-json';
 
 import { fileURLToPath } from 'url';
+import ansiColors from 'ansi-colors';
 import { dirname, resolve } from 'path';
+import { SingleBar } from 'cli-progress';
 import parseLinkHeader from 'parse-link-header';
 import packageJsonModule from '@npmcli/package-json';
 
@@ -143,8 +145,9 @@ const getPackageJsonPath = (): string => resolve(getInstallDirectory(), '..');
 
 export const fetchRepos = async (
   options: ListReposOptions,
-  repos: GitHubRepoData[],
-  nextUrl: string
+  progressBar: SingleBar,
+  repos: GitHubRepoData[] = [],
+  nextUrl: string = null
 ) => {
   try {
     const identifier = options.username ?? options.organization;
@@ -155,20 +158,29 @@ export const fetchRepos = async (
     const result = await makeApiRequest(url, options);
     const parsed = await result.json();
 
+    if (!Array.isArray(parsed)) {
+      throw new Error(`Invalid response from API: ${parsed.message}`);
+    }
+
     repos.push(...parsed);
 
-    console.log(`Added ${parsed.length} repos from this page`);
-
     if (result.headers.has('Link')) {
-      const nextUrl = parseLinkHeader(result.headers.get('Link'))?.next?.url;
+      const linkHeader = parseLinkHeader(result.headers.get('Link'));
 
-      if (!nextUrl) {
-        return repos;
+      if (repos.length === parsed.length && linkHeader.last) {
+        const lastPageUrl = new URL(linkHeader.last?.url);
+        const lastPage = parseInt(lastPageUrl.searchParams.get('page'), 10);
+
+        if (!isNaN(lastPage)) {
+          progressBar.start(lastPage, 1);
+        }
       }
 
-      console.log(`Requesting page ${nextUrl}`);
+      progressBar.increment();
 
-      return fetchRepos(options, repos, nextUrl);
+      if (linkHeader.next) {
+        return fetchRepos(options, progressBar, repos, linkHeader.next.url);
+      }
     }
   } catch (error) {
     console.error(error);
@@ -207,7 +219,11 @@ export async function listRepos(opts: ListReposOptions): Promise<void> {
       throw new Error('A token is required to obtain private repos!');
     }
 
-    const repos = await fetchRepos(opts, [], null);
+    const progressBar = new SingleBar({
+      format: `[{percentage}%] ${ansiColors.magenta('{bar}')} ({value} / {total} pages)`
+    });
+    const repos = await fetchRepos(opts, progressBar);
+    progressBar.stop();
 
     console.dir(
       repos.map((repo: GitHubRepoData) => ({

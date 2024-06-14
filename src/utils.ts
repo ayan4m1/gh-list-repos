@@ -1,8 +1,11 @@
+import type { PackageJson } from '@npmcli/package-json';
+
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
-import type { PackageJson } from '@npmcli/package-json';
-import packageJsonModule from '@npmcli/package-json';
 import parseLinkHeader from 'parse-link-header';
+import packageJsonModule from '@npmcli/package-json';
+
+import { authenticate, makeApiRequest } from './auth.js';
 
 export enum Visibility {
   Public,
@@ -32,13 +35,97 @@ export enum SortDirection {
   Descending
 }
 
-export type Identification = {
+export type AuthData = {
   username?: string;
   organization?: string;
   token?: string;
 };
 
-export type ListReposOptions = Identification & {
+export type GitHubRepoOwner = {
+  login: string;
+  node_id: string;
+  avatar_url: string;
+  gravatar_id: string;
+  url: string;
+  html_url: string;
+  followers_url: string;
+  following_url: string;
+  gists_url: string;
+  starred_url: string;
+  subscriptions_url: string;
+  organizations_url: string;
+  repos_url: string;
+  events_url: string;
+  received_events_url: string;
+  type: string;
+  site_admin: boolean;
+};
+
+export type GitHubRepoData = {
+  id: number;
+  node_id: string;
+  name: string;
+  full_name: string;
+  private: boolean;
+  owner: GitHubRepoOwner;
+  html_url: string;
+  description?: string;
+  fork: boolean;
+  url: string;
+  forks_url: string;
+  keys_url: string;
+  collaborators_url: string;
+  teams_url: string;
+  hooks_url: string;
+  issue_events_url: string;
+  events_url: string;
+  assignees_url: string;
+  branches_url: string;
+  tags_url: string;
+  blobs_url: string;
+  git_tags_url: string;
+  git_refs_url: string;
+  trees_url: string;
+  statuses_url: string;
+  languages_url: string;
+  stargazers_url: string;
+  contributors_url: string;
+  // todo: so many damn URLs...
+  created_at: string;
+  updated_at: string;
+  pushed_at: string;
+  git_url: string;
+  ssh_url: string;
+  clone_url: string;
+  svn_url: string;
+  homepage?: string;
+  size: number;
+  stargazers_count: number;
+  watchers_count: number;
+  language?: string;
+  has_issues: boolean;
+  has_projects: boolean;
+  has_downloads: boolean;
+  has_wiki: boolean;
+  has_pages: boolean;
+  has_discussions: boolean;
+  forks_count: number;
+  mirror_url?: string;
+  archived: boolean;
+  disabled: boolean;
+  open_issues_count?: number;
+  allow_forking: boolean;
+  is_template: boolean;
+  web_commit_signoff_required: boolean;
+  topics: string[];
+  visibility: string;
+  forks: number;
+  open_issues?: number;
+  watchers: number;
+  default_branch: string;
+};
+
+export type ListReposOptions = AuthData & {
   visibility?: Visibility;
   name?: string;
   skip?: number;
@@ -55,31 +142,22 @@ const getInstallDirectory = (): string =>
 const getPackageJsonPath = (): string => resolve(getInstallDirectory(), '..');
 
 export const fetchRepos = async (
-  { username, organization, token }: ListReposOptions,
+  options: ListReposOptions,
   repos: object[],
   nextUrl: string
 ) => {
   try {
-    const headers: HeadersInit = {};
-
-    if (token) {
-      const encodedToken = Buffer.from(
-        `${username || organization}/token:${token}`
-      ).toString('base64');
-
-      headers.Authorization = `Basic ${encodedToken}`;
-    }
-
+    const identifier = options.username ?? options.organization;
     const url =
       nextUrl ??
-      `https://api.github.com/${username ? 'users' : 'orgs'}/${username ?? organization}/repos`;
+      `https://api.github.com/${options.username ? 'users' : 'orgs'}/${identifier}/repos`;
 
-    const result = await fetch(url, {
-      headers
-    });
+    const result = await makeApiRequest(url, options);
     const parsed = await result.json();
 
     repos.push(...parsed);
+
+    console.log(`Added ${parsed.length} repos from this page`);
 
     if (result.headers.has('Link')) {
       const nextUrl = parseLinkHeader(result.headers.get('Link'))?.next?.url;
@@ -88,13 +166,9 @@ export const fetchRepos = async (
         return repos;
       }
 
-      console.log(`Recursing to next page ${nextUrl}`);
+      console.log(`Requesting page ${nextUrl}`);
 
-      return fetchRepos(
-        { username: username, organization, token },
-        repos,
-        nextUrl
-      );
+      return fetchRepos(options, repos, nextUrl);
     }
   } catch (error) {
     console.error(error);
@@ -112,10 +186,25 @@ export async function listRepos(opts: ListReposOptions): Promise<void> {
       throw new Error('Invalid options supplied!');
     }
 
-    const { username: user, organization } = opts;
+    const { visibility } = opts;
+    let { username, organization, token } = opts;
 
-    if (user && organization) {
+    if (username && organization) {
       throw new Error('User and organization cannot both be supplied!');
+    } else if (!username && !organization) {
+      throw new Error('Either user or organization must be supplied!');
+    }
+
+    if (!token) {
+      const authData = await authenticate();
+
+      username = authData.username;
+      organization = authData.organization;
+      token = authData.token;
+    }
+
+    if (!token && visibility !== Visibility.Public) {
+      throw new Error('A token is required to obtain private repos!');
     }
 
     const repos = await fetchRepos(opts, [], null);

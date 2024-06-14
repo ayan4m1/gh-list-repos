@@ -5,8 +5,10 @@
     "@rollup/plugin-node-resolve": "^15.2.3",
     "@rollup/plugin-terser": "^0.4.4",
     "@rollup/plugin-typescript": "^11.1.6",
+    "@types/copy-paste": "^1.1.33",
     "@types/node": "^20.14.2",
     "@types/npmcli__package-json": "^4.0.4",
+    "@types/parse-link-header": "^2.0.3",
     "@types/rollup-plugin-auto-external": "^2.0.5",
     "@typescript-eslint/eslint-plugin": "^7.13.0",
     "@typescript-eslint/parser": "^7.13.0",
@@ -54,7 +56,12 @@
   "version": "0.1.0",
   "dependencies": {
     "@npmcli/package-json": "5.2.0",
+    "@octokit/auth-oauth-device": "7.1.1",
+    "@octokit/core": "6.1.2",
     "commander": "12.1.0",
-    "parse-link-header": "2.0.0"
+    "copy-paste": "^1.5.3",
+    "open": "^10.1.0",
+    "parse-link-header": "2.0.0",
+    "yaml": "2.4.5"
   }
 }

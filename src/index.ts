@@ -10,16 +10,20 @@ try {
     .name(name)
     .version(version)
     .description(description)
-    .option('-u, --username <value>', 'Specify user to list repos for')
-    .option('-o, --organization <value>', 'Specify org to list repos for')
-    .option('-t, --token <value>', 'Specify auth token if you already have one')
-    .option('-i, --interactive', 'Perform an interactive login to GitHub')
-    .option('-v, --visibility <value>', 'Filter based on repo visibility')
-    .option('-n, --name <value>', 'Filter based on repo name')
+    .option('--list-sort-fields', 'Print a list of all sort field keys')
     .option('-l, --limit <number>', 'Maximum number of repos to return')
     .option(
-      '-S, --sort <field>:<direction>',
-      'Sort field and direction (see help)'
+      '-n, --name <value>',
+      'Filter based on repo name (wildcards supported)'
+    )
+    .option(
+      '-s, --sort <descriptor>',
+      'Sort field and direction (e.g. "pushed:asc")'
+    )
+    .option(
+      '-v, --visibility <value>',
+      'Filter by repo visibility (public, private, or all)',
+      'public'
     )
     .action(handler)
     .parseAsync();

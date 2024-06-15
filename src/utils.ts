@@ -1,37 +1,52 @@
 import type { PackageJson } from '@npmcli/package-json';
 
+import open from 'open';
+import { join } from 'path';
+import { homedir } from 'os';
 import Table from 'cli-table';
+import copyPaste from 'copy-paste';
 import { fileURLToPath } from 'url';
 import ansiColors from 'ansi-colors';
 import { dirname, resolve } from 'path';
+import { parse, stringify } from 'yaml';
 import { SingleBar } from 'cli-progress';
 import parseLinkHeader from 'parse-link-header';
+import { readFile, writeFile } from 'fs/promises';
 import packageJsonModule from '@npmcli/package-json';
-
-import { authenticate, makeApiRequest } from './auth.js';
 import { compareAsc, format, parseISO } from 'date-fns';
+import { createOAuthDeviceAuth } from '@octokit/auth-oauth-device';
+
+import {
+  GitHubRepoData,
+  getCurrentUsername,
+  makeRawApiRequest
+} from './github.js';
+
+export enum IdentifierType {
+  User = 'user',
+  Organization = 'org'
+}
 
 export enum Visibility {
-  Public,
-  Private,
-  All
+  Public = 'public',
+  Private = 'private',
+  All = 'all'
 }
 
 export enum SortField {
-  Id,
-  Name,
-  FullName,
-  OwnerName,
-  CreatedAt,
-  UpdatedAt,
-  PushedAt,
-  Stars,
-  Watchers,
-  Forks,
-  OpenIssues,
-  License,
-  AllowsForks,
-  IsTemplate
+  Id = 'id',
+  Name = 'name',
+  FullName = 'full_name',
+  OwnerName = 'owner.login',
+  CreatedAt = 'created_at',
+  UpdatedAt = 'updated_at',
+  PushedAt = 'pushed_at',
+  Stars = 'stargazers_count',
+  Watchers = 'watchers_count',
+  Forks = 'forks_count',
+  OpenIssues = 'open_issues_count',
+  AllowsForks = 'allow_forking',
+  IsTemplate = 'is_template'
 }
 
 export enum SortDirection {
@@ -39,131 +54,109 @@ export enum SortDirection {
   Descending
 }
 
+const { copy } = copyPaste;
+const auth = createOAuthDeviceAuth({
+  clientType: 'oauth-app',
+  clientId: 'Ov23lihrjpuE0czcBGvD',
+  scopes: ['repo'],
+  onVerification: async (info) => {
+    console.log(
+      'Navigate to the following URL in your browser: %s',
+      info.verification_uri
+    );
+    console.log(
+      'Then, paste this code (which has been copied into your clipboard automatically) and click Continue: %s',
+      info.user_code
+    );
+    await open(info.verification_uri);
+    copy(info.user_code);
+  }
+});
+
 export type AuthData = {
   username?: string;
   organization?: string;
   token?: string;
 };
 
-export type GitHubRepoOwner = {
-  login: string;
-  node_id: string;
-  avatar_url: string;
-  gravatar_id: string;
-  url: string;
-  html_url: string;
-  followers_url: string;
-  following_url: string;
-  gists_url: string;
-  starred_url: string;
-  subscriptions_url: string;
-  organizations_url: string;
-  repos_url: string;
-  events_url: string;
-  received_events_url: string;
-  type: string;
-  site_admin: boolean;
-};
-
-export type GitHubRepoData = {
-  id: number;
-  node_id: string;
-  name: string;
-  full_name: string;
-  private: boolean;
-  owner: GitHubRepoOwner;
-  html_url: string;
-  description?: string;
-  fork: boolean;
-  url: string;
-  forks_url: string;
-  keys_url: string;
-  collaborators_url: string;
-  teams_url: string;
-  hooks_url: string;
-  issue_events_url: string;
-  events_url: string;
-  assignees_url: string;
-  branches_url: string;
-  tags_url: string;
-  blobs_url: string;
-  git_tags_url: string;
-  git_refs_url: string;
-  trees_url: string;
-  statuses_url: string;
-  languages_url: string;
-  stargazers_url: string;
-  contributors_url: string;
-  // todo: so many damn URLs...
-  created_at: string;
-  updated_at: string;
-  pushed_at: string;
-  git_url: string;
-  ssh_url: string;
-  clone_url: string;
-  svn_url: string;
-  homepage?: string;
-  size: number;
-  stargazers_count: number;
-  watchers_count: number;
-  language?: string;
-  has_issues: boolean;
-  has_projects: boolean;
-  has_downloads: boolean;
-  has_wiki: boolean;
-  has_pages: boolean;
-  has_discussions: boolean;
-  forks_count: number;
-  mirror_url?: string;
-  archived: boolean;
-  disabled: boolean;
-  open_issues_count?: number;
-  allow_forking: boolean;
-  is_template: boolean;
-  web_commit_signoff_required: boolean;
-  topics: string[];
-  visibility: string;
-  forks: number;
-  open_issues?: number;
-  watchers: number;
-  default_branch: string;
-};
-
-export type ListReposOptions = AuthData & {
-  visibility?: Visibility;
+export type ListReposOptions = {
   name?: string;
   limit?: number;
+  visibility?: Visibility;
+  listSortFields: boolean;
   sort?: {
     field: SortField;
     direction: SortDirection;
   };
 };
 
+const configPath = join(homedir(), '.ghreporc.yml');
+
 const getInstallDirectory = (): string =>
   dirname(fileURLToPath(import.meta.url));
 
 const getPackageJsonPath = (): string => resolve(getInstallDirectory(), '..');
 
+const saveAuthData = (data: AuthData) =>
+  writeFile(
+    configPath,
+    stringify({
+      data
+    })
+  );
+
+const loadAuthData = async (): Promise<AuthData> =>
+  parse(
+    await readFile(configPath, {
+      encoding: 'utf8'
+    })
+  );
+
+const authenticate = async (): Promise<AuthData> => {
+  let authData: AuthData = null;
+  try {
+    console.log(`Trying to load cached token from ${configPath}...`);
+    authData = await loadAuthData();
+    const authResult = await getCurrentUsername(authData);
+    if (!authResult) {
+      throw new Error('Failed to login using saved token!');
+    } else {
+      console.log(`Authenticated successfully as ${authResult}`);
+    }
+  } catch (error) {
+    try {
+      console.log('Attempting new login to GitHub to get token...');
+      authData = await auth({ type: 'oauth' });
+      await saveAuthData(authData);
+    } catch {
+      console.error(error);
+      throw new Error('Failed to get auth data from GitHub!');
+    }
+  }
+
+  return authData;
+};
+
 export const fetchRepos = async (
   options: ListReposOptions,
   progressBar: SingleBar,
+  authData?: AuthData,
   repos: GitHubRepoData[] = [],
   nextUrl: string = null
 ) => {
   try {
-    const identifier = options.username ?? options.organization;
     const url =
       nextUrl ??
-      `https://api.github.com/${options.username ? 'users' : 'orgs'}/${identifier}/repos?per_page=100`;
+      `https://api.github.com/user/repos?visibility=${options.visibility}&per_page=100`;
+    const result = await makeRawApiRequest(url, authData);
+    const data = await result.json();
 
-    const result = await makeApiRequest(url, options);
-    const parsed = await result.json();
-
-    if (!Array.isArray(parsed)) {
-      throw new Error(`Invalid response from API: ${parsed.message}`);
+    if (!Array.isArray(data)) {
+      throw new Error(`Invalid response from API!`);
     }
 
-    repos.push(...parsed);
+    // add response data to return result
+    repos.push(...data);
 
     if (
       result.headers.has('Link') &&
@@ -172,7 +165,7 @@ export const fetchRepos = async (
       const linkHeader = parseLinkHeader(result.headers.get('Link'));
 
       // start progress bar if this is the first recursion
-      if (repos.length === parsed.length && linkHeader.last) {
+      if (repos.length === data.length && linkHeader.last) {
         const lastPageUrl = new URL(linkHeader.last?.url);
         const lastPage = parseInt(lastPageUrl.searchParams.get('page'), 10);
 
@@ -181,10 +174,16 @@ export const fetchRepos = async (
         }
       }
 
-      // recurse if necessary
+      // increment progress bar and recurse if necessary
       if (linkHeader.next) {
         progressBar.increment();
-        return fetchRepos(options, progressBar, repos, linkHeader.next.url);
+        return fetchRepos(
+          options,
+          progressBar,
+          authData,
+          repos,
+          linkHeader.next.url
+        );
       }
     }
   } catch (error) {
@@ -197,45 +196,28 @@ export const fetchRepos = async (
 export const getPackageInfo = async (): Promise<PackageJson> =>
   (await packageJsonModule.load(getPackageJsonPath()))?.content;
 
-export async function listRepos(opts: ListReposOptions): Promise<void> {
+export async function listRepos(options: ListReposOptions): Promise<void> {
   try {
-    if (!opts) {
+    if (!options) {
       throw new Error('Invalid options supplied!');
     }
 
-    const { visibility } = opts;
-    let { username, organization, token } = opts;
+    const { listSortFields } = options;
 
-    if (username && organization) {
-      throw new Error('User and organization cannot both be supplied!');
-    } else if (!username && !organization) {
-      throw new Error('Either user or organization must be supplied!');
+    if (listSortFields) {
+      console.log('Keys for sort fields:');
+      for (const [key] of Object.entries(SortField)) {
+        console.log(` * ${key}`);
+      }
+      return process.exit(0);
     }
 
-    if (!token) {
-      const authData = await authenticate();
-
-      username = authData.username;
-      organization = authData.organization;
-      token = authData.token;
-    }
-
-    if (!token && visibility !== Visibility.Public) {
-      throw new Error('A token is required to access private repos!');
-    }
-
+    const authData: AuthData = await authenticate();
     const progressBar = new SingleBar({
       format: `[{percentage}%] ${ansiColors.greenBright('{bar}')} ({value} / {total} pages)`
     });
-    const repos = await fetchRepos(
-      {
-        ...opts,
-        username,
-        organization,
-        token
-      },
-      progressBar
-    );
+    const repos = await fetchRepos(options, progressBar, authData);
+
     progressBar.stop();
 
     const table = new Table({

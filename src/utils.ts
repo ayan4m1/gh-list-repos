@@ -143,7 +143,7 @@ export const fetchRepos = async (
   authData?: AuthData,
   repos: GitHubRepoData[] = [],
   nextUrl: string = null
-) => {
+): Promise<GitHubRepoData[]> => {
   try {
     const url =
       nextUrl ??
@@ -216,7 +216,11 @@ export async function listRepos(options: ListReposOptions): Promise<void> {
     const progressBar = new SingleBar({
       format: `[{percentage}%] ${ansiColors.greenBright('{bar}')} ({value} / {total} pages)`
     });
-    const repos = await fetchRepos(options, progressBar, authData);
+    let repos = await fetchRepos(options, progressBar, authData);
+
+    if (options.name) {
+      repos = repos.filter((repo) => repo.name.includes(options.name));
+    }
 
     progressBar.stop();
 

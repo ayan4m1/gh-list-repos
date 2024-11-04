@@ -22,6 +22,8 @@ import {
   makeRawApiRequest
 } from './github.js';
 
+const { copy } = copyPaste;
+
 export enum IdentifierType {
   User = 'user',
   Organization = 'org'
@@ -54,25 +56,6 @@ export enum SortDirection {
   Descending
 }
 
-const { copy } = copyPaste;
-const auth = createOAuthDeviceAuth({
-  clientType: 'oauth-app',
-  clientId: 'Ov23lihrjpuE0czcBGvD',
-  scopes: ['repo'],
-  onVerification: async (info) => {
-    console.log(
-      'Navigate to the following URL in your browser: %s',
-      info.verification_uri
-    );
-    console.log(
-      'Then, paste this code (which has been copied into your clipboard automatically) and click Continue: %s',
-      info.user_code
-    );
-    await open(info.verification_uri);
-    copy(info.user_code);
-  }
-});
-
 export type AuthData = {
   username?: string;
   organization?: string;
@@ -81,6 +64,7 @@ export type AuthData = {
 
 export type ListReposOptions = {
   name?: string;
+  owner?: string;
   limit?: number;
   visibility?: Visibility;
   listSortFields: boolean;
@@ -126,6 +110,23 @@ const authenticate = async (): Promise<AuthData> => {
   } catch (error) {
     try {
       console.log('Attempting new login to GitHub to get token...');
+      const auth = createOAuthDeviceAuth({
+        clientType: 'oauth-app',
+        clientId: 'Ov23lihrjpuE0czcBGvD',
+        scopes: ['repo'],
+        onVerification: async (info) => {
+          console.log(
+            'Navigate to the following URL in your browser: %s',
+            info.verification_uri
+          );
+          console.log(
+            'Then, paste this code (which has been copied into your clipboard automatically) and click Continue: %s',
+            info.user_code
+          );
+          await open(info.verification_uri);
+          copy(info.user_code);
+        }
+      });
       authData = await auth({ type: 'oauth' });
       await saveAuthData(authData);
     } catch {
@@ -222,6 +223,9 @@ export async function listRepos(options: ListReposOptions): Promise<void> {
       repos = repos.filter((repo) => repo.name.includes(options.name));
     }
 
+    if (options.owner) {
+      repos = repos.filter((repo) => repo.owner.login === options.owner);
+    }
     progressBar.stop();
 
     const table = new Table({

@@ -11,17 +11,15 @@ try {
     .version(version)
     .description(description)
     .option('--list-sort-fields', 'Print a list of all sort field keys')
-    .option('-l, --limit <number>', 'Maximum number of repos to return')
+    .option('-l,--limit <number>', 'Maximum number of repos to return')
+    .option('-o,--owner <value>', 'Filter based on organization/owner name')
+    .option('-n,--name <value>', 'Filter based on repo name')
     .option(
-      '-n, --name <value>',
-      'Filter based on repo name (wildcards supported)'
-    )
-    .option(
-      '-s, --sort <descriptor>',
+      '-s,--sort <descriptor>',
       'Sort field and direction (e.g. "pushed:asc")'
     )
     .option(
-      '-v, --visibility <value>',
+      '-v,--visibility <value>',
       'Filter by repo visibility (public, private, or all)',
       'public'
     )
